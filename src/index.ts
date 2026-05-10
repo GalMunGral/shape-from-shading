@@ -1,23 +1,35 @@
-import { control, button, loadDemData, displayGray, displayNormal } from "./io";
-import { N, R } from "./constants";
-
-const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+import {control, button, loadDemData, displayGray, displayNormal} from "./io";
+import {N, R} from "./constants";
 
 interface SolverModule {
-  _get_dem_ptr():           number;
-  _get_shading_ptr():       number;
-  _get_reflectance_ptr():   number;
-  _get_normal_ptr():        number;
-  _get_integral_ptr():      number;
+  _get_dem_ptr(): number;
+
+  _get_shading_ptr(): number;
+
+  _get_reflectance_ptr(): number;
+
+  _get_normal_ptr(): number;
+
+  _get_integral_ptr(): number;
+
   _get_reconstructed_ptr(): number;
-  _get_amplitudes_ptr():    number;
+
+  _get_amplitudes_ptr(): number;
+
   _do_compute_shading(theta: number, phi: number): void;
+
   _do_compute_reflectance(theta: number, phi: number): void;
+
   _do_resolve_normal(t1: number, p1: number, t2: number, p2: number, t3: number, p3: number): void;
+
   _do_reset_normal(): void;
+
   _do_compute_gradients(): void;
+
   _do_integrate(): void;
+
   _do_frankot_chellappa(): void;
+
   HEAPF64: Float64Array;
 }
 
@@ -27,29 +39,51 @@ async function main() {
   const M = await createSolverModule();
 
   const f = (ptr: number, len: number) => M.HEAPF64.subarray(ptr / 8, ptr / 8 + len);
-  const demBuf          = f(M._get_dem_ptr(),           N * N);
-  const shadingBuf      = f(M._get_shading_ptr(),       N * N);
-  const reflectanceBuf  = f(M._get_reflectance_ptr(),   R * R);
-  const normalBuf       = f(M._get_normal_ptr(),     4 * N * N);
-  const integralBuf     = f(M._get_integral_ptr(),       N * N);
-  const reconstructedBuf= f(M._get_reconstructed_ptr(), N * N);
-  const amplitudesBuf   = f(M._get_amplitudes_ptr(),    N * N);
+  const demBuf = f(M._get_dem_ptr(), N * N);
+  const shadingBuf = f(M._get_shading_ptr(), N * N);
+  const reflectanceBuf = f(M._get_reflectance_ptr(), R * R);
+  const normalBuf = f(M._get_normal_ptr(), 4 * N * N);
+  const integralBuf = f(M._get_integral_ptr(), N * N);
+  const reconstructed = f(M._get_reconstructed_ptr(), N * N);
+  const amplitudesBuf = f(M._get_amplitudes_ptr(), N * N);
 
   const dem = await loadDemData();
   demBuf.set(dem);
   displayGray("dem", demBuf, N);
 
   const thetas: number[] = [];
-  const phis:   number[] = [];
+  const phis: number[] = [];
+
+  function clearCanvas(id: string) {
+    const canvas = document.getElementById(id) as HTMLCanvasElement | null;
+    if (canvas) canvas.getContext("2d")!.clearRect(0, 0, canvas.width, canvas.height);
+  }
 
   function reset() {
     thetas.length = 0;
-    phis.length   = 0;
+    phis.length = 0;
     M._do_reset_normal();
+    for (const id of ["shading", "reflectance", "normal", "integral", "reconstructed", "amplitudes"])
+      clearCanvas(id);
   }
 
-  const theta = control("theta", { initialValue: 45, onInput: captureImage, onChange: updateAll });
-  const phi   = control("phi",   { initialValue: 45, onInput: captureImage, onChange: updateAll });
+  const theta = control("theta", {
+    initialValue: 45, onInput: () => {
+    }, onChange: updateAll
+  });
+  const phi = control("phi", {
+    initialValue: 45, onInput: () => {
+    }, onChange: updateAll
+  });
+
+  document.getElementById("theta")?.addEventListener("input", () => {
+    const el = document.getElementById("theta-val");
+    if (el) el.textContent = String(theta.get());
+  });
+  document.getElementById("phi")?.addEventListener("input", () => {
+    const el = document.getElementById("phi-val");
+    if (el) el.textContent = String(phi.get());
+  });
 
   function captureImage() {
     const t = theta.get(), p = phi.get();
@@ -58,10 +92,14 @@ async function main() {
     }
     M._do_compute_shading(t, p);
     M._do_compute_reflectance(t, p);
-    displayGray("shading",     shadingBuf,     N);
+    displayGray("shading", shadingBuf, N);
     displayGray("reflectance", reflectanceBuf, R);
-    if (thetas.length === 3) { thetas.shift(); phis.shift(); }
-    thetas.push(t); phis.push(p);
+    if (thetas.length === 3) {
+      thetas.shift();
+      phis.shift();
+    }
+    thetas.push(t);
+    phis.push(p);
   }
 
   function updateGradients() {
@@ -75,8 +113,8 @@ async function main() {
 
   function fitModel() {
     M._do_frankot_chellappa();
-    displayGray("reconstructed", reconstructedBuf, N);
-    displayGray("amplitudes",    amplitudesBuf,    N);
+    displayGray("reconstructed", reconstructed, N);
+    displayGray("amplitudes", amplitudesBuf, N);
   }
 
   function updateAll() {
@@ -85,26 +123,7 @@ async function main() {
     fitModel();
   }
 
-  let rafHandle = -1;
-  button("reconstruct", () => {
-    cancelAnimationFrame(rafHandle);
-    reset();
-    let iter     = 360 * 10;
-    let interval = 1;
-    rafHandle = requestAnimationFrame(function step() {
-      if (!iter--) return;
-      if (iter % 360 === 0) phi.set(clamp(phi.get() - 1, 10, 80));
-      theta.set((theta.get() + 1) % 360);
-      captureImage();
-      updateGradients();
-      if (iter % interval === 0) {
-        fitModel();
-        interval = clamp(interval * 4, 1, 32);
-      }
-      rafHandle = requestAnimationFrame(step);
-    });
-  });
-
+  button("reset", reset);
 }
 
 main();
