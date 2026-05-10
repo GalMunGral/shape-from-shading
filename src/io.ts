@@ -1,120 +1,81 @@
-import { IMG_SIZE } from "./constants";
-import { clamp, zeros2D } from "./utils";
+import { N } from "./constants";
+import demUrl from "./dem.png";
 
-export function displayGray(canvasId: string, data: image2D) {
-  const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
-  if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const height = data.length;
-  const width = data[0].length;
-  canvas.width = width;
-  canvas.height = height;
-
-  const imageData = new ImageData(width, height);
-  for (let i = 0; i < height; ++i) {
-    for (let j = 0; j < width; ++j) {
-      const intensity = clamp(data[i][j], 0, 1);
-      imageData.data[4 * (i * width + j)] = intensity * 255;
-      imageData.data[4 * (i * width + j) + 1] = intensity * 255;
-      imageData.data[4 * (i * width + j) + 2] = intensity * 255;
-      imageData.data[4 * (i * width + j) + 3] = 255;
-    }
-  }
-  ctx.putImageData(imageData, 0, 0);
+function clamp(v: number, lo: number, hi: number) {
+  return Math.max(lo, Math.min(hi, v));
 }
 
-export function displayRGBA(canvasId: string, data: vec4<image2D>) {
+export function displayGray(canvasId: string, data: Float64Array, N: number) {
   const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
   if (!canvas) return;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const height = data[0].length;
-  const width = data[0][0].length;
-  canvas.width = width;
-  canvas.height = height;
-
-  const imageData = new ImageData(width, height);
-  for (let i = 0; i < height; ++i) {
-    for (let j = 0; j < width; ++j) {
-      const r = clamp(data[0][i][j], 0, 1);
-      const g = clamp(data[1][i][j], 0, 1);
-      const b = clamp(data[2][i][j], 0, 1);
-      const a = clamp(data[3][i][j], 0, 1);
-      imageData.data[4 * (i * width + j)] = r * 255;
-      imageData.data[4 * (i * width + j) + 1] = g * 255;
-      imageData.data[4 * (i * width + j) + 2] = b * 255;
-      imageData.data[4 * (i * width + j) + 3] = a * 255;
-    }
+  const ctx = canvas.getContext("2d")!;
+  canvas.width = N;
+  canvas.height = N;
+  const img = new ImageData(N, N);
+  for (let i = 0; i < N * N; ++i) {
+    const v = clamp(data[i], 0, 1) * 255;
+    img.data[4 * i]     = v;
+    img.data[4 * i + 1] = v;
+    img.data[4 * i + 2] = v;
+    img.data[4 * i + 3] = 255;
   }
-  ctx.putImageData(imageData, 0, 0);
+  ctx.putImageData(img, 0, 0);
 }
+
+// normal buffer layout: [nx: N*N][ny: N*N][nz: N*N][nw: N*N]
+// nx/ny/nz in [-1,1], nw = 0 or 1
+export function displayNormal(canvasId: string, data: Float64Array, N: number) {
+  const canvas = document.getElementById(canvasId) as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d")!;
+  canvas.width = N;
+  canvas.height = N;
+  const img = new ImageData(N, N);
+  const nx = data.subarray(0,         N * N);
+  const ny = data.subarray(    N * N, 2 * N * N);
+  const nz = data.subarray(2 * N * N, 3 * N * N);
+  const nw = data.subarray(3 * N * N, 4 * N * N);
+  for (let i = 0; i < N * N; ++i) {
+    img.data[4 * i]     = clamp((nx[i] + 1) / 2, 0, 1) * 255;
+    img.data[4 * i + 1] = clamp((ny[i] + 1) / 2, 0, 1) * 255;
+    img.data[4 * i + 2] = clamp((nz[i] + 1) / 2, 0, 1) * 255;
+    img.data[4 * i + 3] = nw[i] * 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+export type Control = { get(): number; set(v: number): void };
 
 export function control(
   elementId: string,
-  config: {
-    initialValue: float;
-    onInput(): void;
-    onChange(): void;
-  }
+  config: { initialValue: number; onInput(): void; onChange(): void }
 ): Control {
   const el = document.getElementById(elementId) as HTMLInputElement | null;
-  if (!el) {
-    return {
-      get() {
-        return 0;
-      },
-      set(v) {
-        return;
-      },
-    };
-  }
-
-  let latestValue = config.initialValue;
-
-  el.value = String(config.initialValue);
-  el.addEventListener("input", () => {
-    latestValue = Number(el.value);
-    config.onInput();
-  });
+  if (!el) return { get: () => 0, set: () => {} };
+  let value = config.initialValue;
+  el.value = String(value);
+  el.addEventListener("input",  () => { value = Number(el.value); config.onInput(); });
   el.addEventListener("change", () => config.onChange());
-
   return {
-    get() {
-      return latestValue;
-    },
-    set(value: float) {
-      el.value = String((latestValue = value));
-    },
+    get: () => value,
+    set: (v) => { el.value = String((value = v)); },
   };
 }
 
 export function button(elementId: string, fn: () => void) {
-  const el = document.getElementById(elementId) as HTMLInputElement | null;
-  if (el) {
-    el.addEventListener("click", () => fn());
-  }
+  document.getElementById(elementId)?.addEventListener("click", fn);
 }
 
-import demUrl from "./dem.png";
-
-export async function loadDemData(): Promise<image2D> {
-  const res = await fetch(demUrl);
-  const blob = await res.blob();
+export async function loadDemData(): Promise<Float64Array> {
+  const res    = await fetch(demUrl);
+  const blob   = await res.blob();
   const bitmap = await createImageBitmap(blob);
-
-  const canvas = new OffscreenCanvas(IMG_SIZE, IMG_SIZE);
-  const ctx = canvas.getContext("2d")!;
+  const canvas = new OffscreenCanvas(N, N);
+  const ctx    = canvas.getContext("2d")!;
   ctx.drawImage(bitmap, 0, 0);
-  const imageData = ctx.getImageData(0, 0, IMG_SIZE, IMG_SIZE);
-
-  const data = zeros2D(IMG_SIZE, IMG_SIZE) as image2D;
-  for (let i = 0; i < IMG_SIZE; ++i) {
-    for (let j = 0; j < IMG_SIZE; ++j) {
-      data[i][j] = imageData.data[4 * (i * IMG_SIZE + j)] / 255;
-    }
-  }
+  const imageData = ctx.getImageData(0, 0, N, N);
+  const data = new Float64Array(N * N);
+  for (let i = 0; i < N * N; ++i)
+    data[i] = imageData.data[4 * i] / 255;
   return data;
 }

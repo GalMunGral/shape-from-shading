@@ -1,16 +1,13 @@
 {
-  "name": "frankot-chellappa",
+  "name": "shape-from-shading",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
   "scripts": {
-    "dev": "esbuild src/index.ts --loader:.png=file --bundle --watch --outdir=dist --serve --serve-fallback=index.html",
-    "build": "esbuild src/index.ts --loader:.png=file --bundle --outdir=dist && cp index.html dist"
+    "dev": "vite",
+    "build": "npm run wasm && vite build",
+    "wasm": "make -C cpp"
   },
-  "author": "",
-  "license": "ISC",
   "devDependencies": {
-    "esbuild": "^0.23.1",
-    "typescript": "^5.5.4"
+    "typescript": "^5.7.2",
+    "vite": "^6.3.5"
   }
 }
